@@ -1,0 +1,23 @@
+# Large data files
+complaints.csv
+data/full/
+*.csv.gz
+
+# Embeddings and large model artifacts
+*.npy
+models/bertopic_cfpb/
+models/embeddings/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
