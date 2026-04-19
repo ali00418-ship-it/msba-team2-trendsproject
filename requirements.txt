@@ -9,3 +9,4 @@ hdbscan
 umap-learn
 pyspark
 scikit-learn
+pyarrow

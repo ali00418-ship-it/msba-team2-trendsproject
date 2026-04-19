@@ -2,7 +2,7 @@
 
 > **Team 2:** Mohameddeq Ali, Cora Goodwin, Midori Neaton, Raja Sori, Xupei Ye, Kyle Zhu  
 > **Branch:** Personal dev branch (VSCode + Claude Code)  
-> **Last updated:** 2026-04-16  
+> **Last updated:** 2026-04-18  
 > **Purpose:** Running log of what has been done, decisions made, blockers, and next steps — so any future chat or teammate can pick up exactly where we left off.
 
 ---
@@ -45,9 +45,68 @@
 #### 🔜 Next steps
 - [x] Set up the GitHub repo with the required README.md structure
 - [x] Create the project folder structure (see below)
-- [ ] Load a sample of the CFPB data (see data strategy section) — *notebook written; needs to be run end-to-end*
-- [ ] Run a first exploratory notebook on the sample — *notebook drafted; run it and review the charts*
+- [x] Load a sample of the CFPB data (see data strategy section)
+- [x] Run a first exploratory notebook on the sample
 - [ ] Install BERTopic and test it on a tiny slice of narratives
+
+---
+
+### Session 2 — 2026-04-18
+**Status:** Built the structured-signal baseline scorer (`notebooks/02_baseline.ipynb`)
+
+#### ✅ What was done this session
+- Built and executed `notebooks/02_baseline.ipynb` end-to-end on the 100k sample
+- Set up the conda env (`msba`, Python 3.11) and installed all of `requirements.txt` plus `pyarrow`
+- Made the first commit + push to the `kyle` branch on GitHub (`Set up project structure and first EDA notebook`)
+- Wrote 7 outputs to `outputs/`: full + top-20 CSV, full Parquet, 3 PNG plots, plain-English `baseline_summary.md`
+- Marked PySpark porting hot-spots in the notebook with `# TODO(pyspark):` comments
+
+#### 🧠 Key decisions made
+- **Unit of prioritization:** `product × issue` — 264 groups on the sample, median ~100 rows/group. `issue` alone loses product context; `product × issue × sub_issue` (605 groups) has too many tiny groups for stable rates on a 100k sample.
+- **Growth-rate method:** last 12 months vs prior 12 months, with `+1` smoothing on denominator. Simpler than a regression slope and stable enough at this granularity.
+- **Severity proxy:** use `monetary_relief_rate` instead of `consumer_disputed` (94.6% null in the sample).
+- **Baseline weights (will be re-balanced once NLP signals land):** volume_z 0.30 · growth_z 0.35 · untimely 0.15 · monetary_relief 0.10 · recency 0.10
+- **Z-score continuous signals only.** Rates already on [0,1] are used directly — easier for the team to interpret.
+
+#### 📊 Top 5 baseline priorities (sample)
+1. Credit reporting — Incorrect information on your report (35,209 complaints, +97% growth)
+2. Student loan — Incorrect information on your report (small group, +400% growth — flagged as small-sample artifact)
+3. Credit reporting — Improper use of your report (15,733 complaints, +43% growth)
+4. Debt collection — Took or threatened to take negative or legal action (769, +320% growth, 5.3% untimely)
+5. Payday loan — Struggling to pay your loan (small group, growth-driven)
+
+#### ⚠️ Caveats / things to watch
+- Smoothed growth still lets very small groups rank highly (rows 2 and 5 above). Consider a minimum-volume floor (e.g. require >= 50 prior-12-mo rows) when porting to the full file.
+- Rankings on the full 14.35M-row file will likely differ — the 100k sample undersamples newer / regional issues.
+
+#### 🔜 Next steps
+- [ ] Notebook 03 — BERTopic theme discovery on rows with a narrative
+- [ ] Notebook 04 — urgency / sentiment signals layered on top
+- [ ] Re-balance weights once narrative signals land
+- [ ] Port notebook 02 to PySpark for the full file (see `# TODO(pyspark):` markers)
+- [ ] Hook `outputs/baseline_priorities_full.parquet` into Tableau
+
+#### 🔁 Follow-up fix to Notebook 02 (same session, v1 → v2)
+**Issue identified:** v1 of the scorer ranked 15/20 top groups with volume < 100 and 12/20 with volume < 50. Tiny groups with prior-window counts of 1–3 produced inflated growth rates (e.g. "2 → 10 complaints" = +400% growth) that dominated the score. Additionally, the v1 correlation heatmap showed `growth_rate ↔ recency_weight` = 0.62 — partial double-counting of "recent-ness."
+
+**Fixes applied:**
+- **Materiality floors on growth_z** — `MIN_TOTAL_VOLUME = 50`, `MIN_PRIOR_VOLUME = 20` on the 100k sample. Groups below either threshold get `growth_z_floored = 0`. Raw `growth_z` is kept in the output for transparency. Thresholds scale ~143× for the full file (≈ 500 / 200) — `# TODO(pyspark):` marked.
+- **Weight rebalance:** untimely 0.15 → 0.20; recency 0.10 → 0.05. Volume / growth / monetary_relief unchanged. Rationale: recency was redundant with growth (corr 0.62); freed weight goes to untimely_rate (true regulatory-risk signal, low correlation to others).
+- Added `prior_volume` as a column in the output so analysts can see why a group passed/failed the floor.
+- Added a sanity-check cell in the notebook that asserts top-20 volume distribution.
+
+**v2 sanity check (passed):**
+- Top-20 groups with volume < 50: **2** (target ≤ 3) ✅
+- Top-20 median volume: **353** (was much lower in v1)
+
+**v2 top 5 priorities:**
+1. Credit reporting — Incorrect information on your report (vol 35,209; +97% growth)
+2. Credit reporting — Improper use of your report (vol 15,733; +43% growth)
+3. Debt collection — Took or threatened to take negative or legal action (vol 769; +320% growth; 5.3% untimely)
+4. Credit reporting — Problem with a company's investigation into an existing problem (vol 11,584; +59% growth)
+5. Credit reporting, credit repair services, or other personal consumer reports — Incorrect information on your report (vol 7,184; floored growth — prior_volume = 0 likely a renamed/reclassified product category)
+
+**Outstanding accepted limitation:** very small groups can still rank if they score highly on `monetary_relief_rate` or `untimely_rate` — this is intentional. A small group with 100% monetary relief is genuinely worth investigating; the floor only applies to growth.
 
 ---
 
