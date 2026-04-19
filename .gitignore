@@ -1,3 +1,5 @@
 complaints.csv
 __pycache__
 .env
+*.parquet
+plot.json
