@@ -41,7 +41,7 @@ def configure_chatbot():
 
         Here is the schema of the dataset:
         - Unnamed: 0 (Index, may be NULL in transcribed rows)
-        - Date received (Format: YYYY-MM-DD)
+        - Date received (Format: YYYY-MM-DD). Some file might include time down to the second.
         - Product
         - Sub-product
         - Issue

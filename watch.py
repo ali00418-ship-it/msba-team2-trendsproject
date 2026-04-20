@@ -20,7 +20,7 @@ def main():
             else:
                 print("No new file found")
 
-            time.sleep(30)
+            time.sleep(20)
 
     except KeyboardInterrupt:
         print("\nShutting down watcher.")

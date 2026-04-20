@@ -60,15 +60,15 @@ def append_transcription(transcription, parquet_dir, target_column):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = os.path.join(parquet_dir, f"recording_{timestamp}.parquet")
 
-    today = date.today().isoformat()
+    today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     safe = transcription.replace("'", "''")
 
     duckdb.sql(f"""
         COPY (
             SELECT
+               TIMESTAMP'{today}' AS "Date received",
                 '{safe}'       AS "{target_column}",
                 'Unknown'      AS "Company",
-                DATE '{today}' AS "Date received",
                 'MN'           AS "State"
         ) TO '{out_path}' (FORMAT PARQUET)
     """)
