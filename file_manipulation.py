@@ -95,3 +95,4 @@ def transcribe(audio_path, model=None):
     print(f"Transcription complete. Length: {len(transcription)} characters.")
 
     return transcription
+

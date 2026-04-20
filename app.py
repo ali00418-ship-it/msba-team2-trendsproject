@@ -2,15 +2,73 @@
 import streamlit as st
 import duckdb
 import os
+import io
+import tempfile
 import plotly.io as pio
 from langchain_openai import ChatOpenAI
 from langchain_experimental.tools import PythonREPLTool
 from langchain_classic.agents import AgentExecutor, create_react_agent
 from langchain_core.prompts import PromptTemplate
+from faster_whisper import WhisperModel
+from openai import OpenAI
 import file_manipulation as fm
 
 from dotenv import load_dotenv
 load_dotenv()
+
+DATA_GLOB = "data/*.parquet"
+
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
+
+@st.cache_resource
+def load_whisper():
+    """Load Whisper once and reuse across reruns."""
+    return WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
+
+
+def transcribe_audio_bytes(audio_bytes: bytes) -> str:
+    """Transcribe raw audio bytes from st.audio_input using Whisper."""
+    model = load_whisper()
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+    try:
+        segments, _ = model.transcribe(tmp_path, beam_size=5)
+        return " ".join([s.text for s in segments]).strip()
+    finally:
+        os.remove(tmp_path)
+
+
+def text_to_speech(text: str) -> bytes:
+    """Convert text to speech using OpenAI TTS. Returns MP3 bytes."""
+    client = OpenAI()
+    response = client.audio.speech.create(
+        model="tts-1",
+        voice="nova",   # change to: alloy, echo, fable, onyx, nova, shimmer
+        input=text,
+    )
+    return response.content
+
+
+def run_agent(agent_executor, user_input: str):
+    """Run the agent and return (output_text, figure_or_None)."""
+    response = agent_executor.invoke({"input": user_input})
+    output_text = response["output"]
+
+    generated_fig = None
+    if os.path.exists("plot.json"):
+        with open("plot.json", "r") as f:
+            generated_fig = pio.from_json(f.read())
+        os.remove("plot.json")
+
+    return output_text, generated_fig
+
+
+# --------------------------------------------------------------------------- #
+# Main app
+# --------------------------------------------------------------------------- #
 
 def configure_chatbot():
 
@@ -21,27 +79,30 @@ def configure_chatbot():
 
     st.set_page_config(page_title="Data Chatbot", layout="wide")
 
-    col1, col2 = st.columns([1, 15])
+    col1, col2 = st.columns([1, 4])
     with col1:
-        st.image("karen.png", width=200)
+        st.image("karen.png", width=700)
     with col2:
         st.title("Hi, I am Karen, your complaints data analyzer. How can I help? 📊")
 
-    # --- Configuration ---
-    DATA_GLOB = "data/*.parquet"   # picks up data.parquet + every recording_*.parquet
-    llm = ChatOpenAI(temperature=0, model="gpt-4o")
+    # --- Sidebar: voice toggle ---
+    with st.sidebar:
+        st.header("⚙️ Settings")
+        voice_input_on  = st.toggle("🎙️ Voice input",  value=False)
+        voice_output_on = st.toggle("🔊 Voice responses", value=False)
 
-    # --- Agent Setup ---
+    # --- LLM + Agent ---
+    llm = ChatOpenAI(temperature=0, model="gpt-4o")
     tools = [PythonREPLTool()]
 
     instructions = f"""
-        You are an expert data analyst. You have access to a folder of Parquet files
+        You are an expert data analyst named Karen. You have access to a folder of Parquet files
         matched by the glob pattern '{DATA_GLOB}' containing consumer financial complaints.
         Some rows come from the original dataset; others were transcribed from audio recordings.
 
         Here is the schema of the dataset:
         - Unnamed: 0 (Index, may be NULL in transcribed rows)
-        - Date received (Format: YYYY-MM-DD). Some file might include time down to the second.
+        - Date received (Format: YYYY-MM-DD). Some files are in Timestamp format so make sure to account for that. 
         - Product
         - Sub-product
         - Issue
@@ -65,7 +126,7 @@ def configure_chatbot():
         2. Query ALL files at once using a glob like this:
            `duckdb.sql('SELECT "Company" FROM "{DATA_GLOB}" LIMIT 5').df()`
         3. Because column names contain spaces, you MUST wrap them in double quotes in your SQL.
-        4. Columns not present in transcribed rows will be NULL — handle them gracefully (e.g. use COALESCE or IS NOT NULL filters when needed).
+        4. Columns not present in transcribed rows will be NULL — handle them gracefully.
 
         CRITICAL FORMATTING INSTRUCTIONS:
         You have access to the following tools:
@@ -100,8 +161,11 @@ def configure_chatbot():
 
     prompt = PromptTemplate.from_template(instructions)
     agent = create_react_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+    agent_executor = AgentExecutor(
+        agent=agent, tools=tools, verbose=True, handle_parsing_errors=True
+    )
 
+    # --- Chat history ---
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
@@ -111,9 +175,23 @@ def configure_chatbot():
             st.markdown(message["content"])
             if "figure" in message and message["figure"] is not None:
                 st.plotly_chart(message["figure"], use_container_width=True)
+            # Replay saved audio if voice was on when this message was created
+            if "audio" in message and message["audio"] is not None:
+                st.audio(message["audio"], format="audio/mp3", autoplay=False)
 
-    user_input = st.chat_input("Ask about your data (e.g., 'Plot the top 10 categories')")
+    # --- Input: voice or text ---
+    user_input = None
 
+    if voice_input_on:
+        audio_value = st.audio_input("🎙️ Speak your question")
+        if audio_value:
+            with st.spinner("Transcribing your question..."):
+                user_input = transcribe_audio_bytes(audio_value.getvalue())
+            st.info(f"📝 Heard: *{user_input}*")
+    else:
+        user_input = st.chat_input("Ask about your data (e.g., 'Plot the top 10 categories')")
+
+    # --- Process input ---
     if user_input:
         with st.chat_message("user", avatar="👤"):
             st.markdown(user_input)
@@ -122,21 +200,24 @@ def configure_chatbot():
         with st.chat_message("assistant", avatar="karen.png"):
             with st.spinner("Analyzing data and generating code..."):
                 try:
-                    response = agent_executor.invoke({"input": user_input})
-                    output_text = response["output"]
+                    output_text, generated_fig = run_agent(agent_executor, user_input)
                     st.markdown(output_text)
 
-                    generated_fig = None
-                    if os.path.exists("plot.json"):
-                        with open("plot.json", "r") as f:
-                            generated_fig = pio.from_json(f.read())
+                    if generated_fig:
                         st.plotly_chart(generated_fig, use_container_width=True)
-                        os.remove("plot.json")
+
+                    # TTS: only for text responses, skip if it's just a chart confirmation
+                    audio_bytes = None
+                    if voice_output_on:
+                        with st.spinner("Generating voice response..."):
+                            audio_bytes = text_to_speech(output_text)
+                        st.audio(audio_bytes, format="audio/mp3", autoplay=True)
 
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": output_text,
-                        "figure": generated_fig
+                        "figure": generated_fig,
+                        "audio": audio_bytes,
                     })
 
                 except Exception as e:
