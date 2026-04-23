@@ -46,7 +46,7 @@ def text_to_speech(text: str) -> bytes:
     client = OpenAI()
     response = client.audio.speech.create(
         model="tts-1",
-        voice="nova",   # change to: alloy, echo, fable, onyx, nova, shimmer
+        voice="nova",
         input=text,
     )
     return response.content
@@ -78,6 +78,14 @@ def configure_chatbot():
         st.session_state.app_initialized = True
 
     st.set_page_config(page_title="Data Chatbot", layout="wide")
+
+    st.markdown("""
+        <style>
+        [data-testid="stHorizontalBlock"] {
+            align-items: center;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
     col1, col2 = st.columns([1, 4])
     with col1:
@@ -128,6 +136,18 @@ def configure_chatbot():
         3. Because column names contain spaces, you MUST wrap them in double quotes in your SQL.
         4. Columns not present in transcribed rows will be NULL — handle them gracefully.
 
+        CRITICAL OUTPUT INSTRUCTIONS:
+        Before running ANY query, you MUST first run this setup code to prevent truncation:
+        ```
+        import pandas as pd
+        pd.set_option('display.max_rows', 500)
+        pd.set_option('display.max_columns', 50)
+        pd.set_option('display.width', 1000)
+        pd.set_option('display.max_colwidth', 200)
+        ```
+        For large result sets, use `.to_string()` instead of just printing the dataframe:
+        `print(result_df.to_string())`
+
         CRITICAL FORMATTING INSTRUCTIONS:
         You have access to the following tools:
         {{tools}}
@@ -162,12 +182,19 @@ def configure_chatbot():
     prompt = PromptTemplate.from_template(instructions)
     agent = create_react_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(
-        agent=agent, tools=tools, verbose=True, handle_parsing_errors=True
+        agent=agent, tools=tools, verbose=True,
+        handle_parsing_errors=True,
+        max_iterations=15,
+        max_execution_time=120,
     )
 
     # --- Chat history ---
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "pending_voice_input" not in st.session_state:
+        st.session_state.pending_voice_input = None
+    if "voice_key_counter" not in st.session_state:
+        st.session_state.voice_key_counter = 0
 
     for message in st.session_state.messages:
         avatar_graphic = "karen.png" if message["role"] == "assistant" else "👤"
@@ -175,7 +202,6 @@ def configure_chatbot():
             st.markdown(message["content"])
             if "figure" in message and message["figure"] is not None:
                 st.plotly_chart(message["figure"], use_container_width=True)
-            # Replay saved audio if voice was on when this message was created
             if "audio" in message and message["audio"] is not None:
                 st.audio(message["audio"], format="audio/mp3", autoplay=False)
 
@@ -183,11 +209,24 @@ def configure_chatbot():
     user_input = None
 
     if voice_input_on:
-        audio_value = st.audio_input("🎙️ Speak your question")
-        if audio_value:
+        # Check if there's a pending voice input from a previous rerun
+        if st.session_state.pending_voice_input is not None:
+            user_input = st.session_state.pending_voice_input
+            st.session_state.pending_voice_input = None
+
+        # Use a dynamic key so we can reset the widget by incrementing the counter
+        audio_value = st.audio_input(
+            "🎙️ Speak your question",
+            key=f"voice_prompt_{st.session_state.voice_key_counter}"
+        )
+        if audio_value and user_input is None:
             with st.spinner("Transcribing your question..."):
-                user_input = transcribe_audio_bytes(audio_value.getvalue())
-            st.info(f"📝 Heard: *{user_input}*")
+                transcribed = transcribe_audio_bytes(audio_value.getvalue())
+            st.info(f"📝 Heard: *{transcribed}*")
+            # Store the transcription and bump the key counter to reset the widget
+            st.session_state.pending_voice_input = transcribed
+            st.session_state.voice_key_counter += 1
+            st.rerun()
     else:
         user_input = st.chat_input("Ask about your data (e.g., 'Plot the top 10 categories')")
 
@@ -206,7 +245,6 @@ def configure_chatbot():
                     if generated_fig:
                         st.plotly_chart(generated_fig, use_container_width=True)
 
-                    # TTS: only for text responses, skip if it's just a chart confirmation
                     audio_bytes = None
                     if voice_output_on:
                         with st.spinner("Generating voice response..."):
@@ -222,6 +260,25 @@ def configure_chatbot():
 
                 except Exception as e:
                     st.error(f"An error occurred: {e}")
+
+        # Force a clean rerun so the audio input widget re-renders fresh.
+        # If voice output is active, wait for the audio to finish playing first.
+        if voice_input_on:
+            if audio_bytes:
+                import time
+                try:
+                    from mutagen.mp3 import MP3
+                    tmp_mp3 = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                    tmp_mp3.write(audio_bytes)
+                    tmp_mp3.close()
+                    duration = MP3(tmp_mp3.name).info.length
+                    os.remove(tmp_mp3.name)
+                except Exception:
+                    # Fallback estimate if mutagen isn't installed
+                    duration = len(audio_bytes) / 2000
+                time.sleep(duration + 0.25)
+            st.session_state.voice_key_counter += 1
+            st.rerun()
 
 
 def main():
