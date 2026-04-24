@@ -16,7 +16,7 @@ import file_manipulation as fm
 from dotenv import load_dotenv
 load_dotenv()
 
-DATA_GLOB = "data/*.parquet"
+DATA_GLOB = "data/labeled/*.parquet"
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -106,35 +106,61 @@ def configure_chatbot():
     instructions = f"""
         You are an expert data analyst named Karen. You have access to a folder of Parquet files
         matched by the glob pattern '{DATA_GLOB}' containing consumer financial complaints.
-        Some rows come from the original dataset; others were transcribed from audio recordings.
+        The data includes the original labeled dataset as well as newly transcribed and classified
+        audio recordings that have been automatically assigned an Issue and priority_tier.
 
         Here is the schema of the dataset:
-        - Unnamed: 0 (Index, may be NULL in transcribed rows)
-        - Date received (Format: YYYY-MM-DD). Some files are in Timestamp format so make sure to account for that. 
+        - Date received (YYYY-MM-DD or TIMESTAMP — cast to TIMESTAMP when filtering)
         - Product
         - Sub-product
-        - Issue
+        - Issue (one of ~62 complaint categories, e.g. "Fraud or scam", "Managing an account")
         - Sub-issue
-        - Consumer complaint narrative
-        - Company public response
+        - Consumer complaint narrative (the raw complaint text)
         - Company
         - State
-        - ZIP code
         - Tags
-        - Consumer consent provided?
-        - Submitted via
-        - Date sent to company
         - Company response to consumer
-        - Timely response?
         - Consumer disputed?
-        - Complaint ID
+        - clean_narrative (cleaned version of the complaint text)
+        - word_count (integer word count of the narrative)
+        - lda_topic (LDA topic number)
+        - lda_topic_label (human-readable LDA topic label)
+        - bert_topic (BERT topic number)
+        - bert_topic_label (human-readable BERT topic label)
+        - category (broader category grouping)
+        - year_month (e.g. "2024-01")
+        - year (integer)
+        - month (integer)
+        - date_dt (DATE type)
+        - volume_score (DOUBLE)
+        - growth_score (DOUBLE)
+        - is_unresolved (INTEGER, 0 or 1)
+        - severity_score (DOUBLE)
+        - recency_score (DOUBLE)
+        - length_score (DOUBLE)
+        - danger_boost (DOUBLE)
+        - priority_score (DOUBLE, composite score)
+        - priority_tier (one of: Critical, High, Medium, Low)
+
+        IMPORTANT: Newly transcribed rows will have NULL for many columns (Product, Sub-product,
+        topic labels, scores, etc.) but will always have: Date received, Consumer complaint narrative,
+        clean_narrative, Issue, priority_tier, Company, State, and word_count.
 
         CRITICAL DUCKDB INSTRUCTIONS:
         1. NEVER use pandas to read the parquet files.
-        2. Query ALL files at once using a glob like this:
-           `duckdb.sql('SELECT "Company" FROM "{DATA_GLOB}" LIMIT 5').df()`
+        2. ALWAYS create a fresh DuckDB connection for each query to ensure newly added files
+           are visible. Use this pattern:
+           ```
+           import duckdb
+           con = duckdb.connect()
+           result_df = con.sql('SELECT "Company" FROM read_parquet("{DATA_GLOB}", filename=true) LIMIT 5').df()
+           con.close()
+           ```
         3. Because column names contain spaces, you MUST wrap them in double quotes in your SQL.
-        4. Columns not present in transcribed rows will be NULL — handle them gracefully.
+        4. Columns not present in transcribed rows will be NULL — handle them gracefully
+           (use COALESCE or IS NOT NULL filters when needed).
+        5. When filtering or sorting by "Date received", always cast it to TIMESTAMP first:
+        ORDER BY CAST("Date received" AS TIMESTAMP) DESC
 
         CRITICAL OUTPUT INSTRUCTIONS:
         Before running ANY query, you MUST first run this setup code to prevent truncation:
@@ -274,7 +300,6 @@ def configure_chatbot():
                     duration = MP3(tmp_mp3.name).info.length
                     os.remove(tmp_mp3.name)
                 except Exception:
-                    # Fallback estimate if mutagen isn't installed
                     duration = len(audio_bytes) / 2000
                 time.sleep(duration + 0.25)
             st.session_state.voice_key_counter += 1
