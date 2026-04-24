@@ -1,4 +1,4 @@
-# 🏦 Banking Complaint Intelligence Dashboard
+# 🏦 Karen - AI Complaint Assistant
 **MSBA Trends Project — Team 2**
 
 > Turning large volumes of consumer banking complaints into clear, prioritized action items for product teams.
