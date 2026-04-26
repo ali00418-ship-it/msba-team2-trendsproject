@@ -1,261 +1,492 @@
-# 🏦 Banking Complaint Intelligence Dashboard
-**MSBA Trends Project — Team 2**
+# Karen: Voice-to-Insights Analytics Agent
 
-> Turning large volumes of consumer banking complaints into clear, prioritized action items for product teams.
-
----
-
-## 👥 Team Members
-Mohameddeq Ali · Cora Goodwin · Midori Neaton · Raja Sori · Xupei Ye · Kyle Zhu
+A consumer complaint analytics system that combines a voice transcription pipeline with an intelligent data chatbot. Karen ingests audio recordings, automatically transcribes and classifies them, assigns a priority tier, stores them as structured data, and lets users query everything through a conversational interface.
 
 ---
 
-## 📌 Project Overview
+## Table of Contents
 
-Banks and fintech product teams receive too many complaints to review individually. The real challenge is figuring out **which pain points matter most**, which ones are getting worse, and what should be fixed first.
-
-This project builds a **Banking Complaint Intelligence System** that helps product teams turn raw complaint data into prioritized insights — delivered through a dashboard or copilot-style interface.
-
-**Outputs include:**
-- Top consumer complaint themes
-- Fast-growing issue areas
-- Affected products and customer segments
-- Priority scores with written rationale for each cluster
-- NLP-generated summaries of complaint narratives
-
----
-
-## 🗂️ Data Source
-
-**CFPB Consumer Complaint Database (Public)**
-[https://catalog.data.gov/dataset/consumer-complaint-database](https://catalog.data.gov/dataset/consumer-complaint-database)
+1. [Features](#features)
+2. [Architecture](#architecture)
+3. [Prerequisites](#prerequisites)
+4. [Environment Setup](#environment-setup)
+5. [API Keys](#api-keys)
+6. [Installation](#installation)
+7. [Data Setup](#data-setup)
+8. [Running the Project](#running-the-project)
+9. [Usage](#usage)
+10. [GPU vs CPU Configuration](#gpu-vs-cpu-configuration)
+11. [Project Structure](#project-structure)
+12. [Tools and Technologies](#tools-and-technologies)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
-## 🛠️ Tools & Technologies
+## Features
 
-| Category | Tools |
-|---|---|
-| Data Processing | Python, Pandas, PySpark |
-| Querying | SQL |
-| NLP / Clustering | BERTopic |
-| Visualization | Tableau |
-| AI / LLM | LLM-powered prioritization engine |
-
----
-
-## 🚀 Getting Started — How to Collaborate
-
-Follow the steps below **in order**. This guide is written for complete beginners — no prior Git experience required.
+- **Automatic transcription**: New audio recordings in a watched folder are transcribed using OpenAI Whisper
+- **Complaint classification**: Each transcription is classified into one of 62 Issue categories using GPT-4o
+- **Priority assignment**: Each complaint is assigned a priority tier (Critical, High, Medium, Low) via a static mapping
+- **Structured storage**: Classified complaints are stored as individual Parquet files queryable by DuckDB
+- **Conversational analytics**: Ask questions in plain English and get answers, tables, or interactive Plotly charts
+- **Optional voice I/O**: Speak your questions and hear Karen's answers read aloud
 
 ---
 
-### Step 1: Install the Prerequisites
+## Architecture
 
-You'll need two things installed on your computer before anything else.
+The system has three independent components that communicate through the filesystem:
 
-#### Install Git
+```
+Audio File
+    |
+    v
+[watch.py] -- polls directory for new recordings
+    |
+    v
+[file_manipulation.py] -- transcribe (Whisper) -> classify (GPT-4o) -> assign tier -> save Parquet
+    |
+    v
+[data/labeled/*.parquet] -- structured complaint data
+    ^
+    |
+[app.py] -- Streamlit chatbot queries all Parquet files via DuckDB
+```
 
-**Mac:**
-1. Open **Terminal** (press `Cmd + Space`, type "Terminal", hit Enter)
-2. Type the following and press Enter:
-   ```
-   git --version
-   ```
-3. If Git is not installed, your Mac will prompt you to install it automatically. Follow the on-screen instructions.
-
-**Windows:**
-1. Go to [https://git-scm.com/download/win](https://git-scm.com/download/win)
-2. Download and run the installer
-3. Accept all default settings during installation
-4. Open **Git Bash** (search for it in the Start menu) — use this instead of Command Prompt for all Git commands
-
-#### Install Python
-
-1. Go to [https://www.python.org/downloads/](https://www.python.org/downloads/)
-2. Download and run the installer for your OS
-3. **Windows users:** On the first installer screen, check the box that says **"Add Python to PATH"** before clicking Install
+1. **watch.py**: Background watcher that detects new audio files and triggers the pipeline
+2. **file_manipulation.py**: Core logic for transcription, classification, priority mapping, and storage
+3. **app.py**: Streamlit chatbot with LangChain ReAct agent, optional voice input/output
 
 ---
 
-### Step 2: Configure Git with Your Identity
+## Prerequisites
 
-This only needs to be done once per computer. Open Terminal (Mac) or Git Bash (Windows) and run these two commands, replacing the values with your own name and email:
+- **Operating System**: Windows 10/11 with WSL2, or native Linux/macOS
+- **Python**: 3.10 or 3.11 (3.11 recommended)
+- **GPU (optional but recommended)**: NVIDIA GPU with CUDA support for fast Whisper transcription
+- **CPU alternative**: Whisper runs on CPU with INT8 quantization (slower but fully functional)
+- **Internet access**: Required for OpenAI API calls (GPT-4o, TTS)
+
+---
+
+## Environment Setup
+
+### Step 1: Install WSL2 (Windows only)
+
+If you are on Windows, you need WSL2 to run the project. Open PowerShell as Administrator and run:
+
+```powershell
+wsl --install
+```
+
+This installs Ubuntu by default. Restart your computer when prompted. After restart, open Ubuntu from the Start menu and create a username and password.
+
+Update the system packages:
 
 ```bash
-git config --global user.name "Your Name"
-git config --global user.email "your@email.com"
+sudo apt update && sudo apt upgrade -y
 ```
 
-Use the same email address associated with your GitHub account.
+### Step 2: Install Miniconda
+
+Download and install Miniconda inside WSL2 (or on your Linux/macOS machine):
+
+```bash
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+```
+
+Follow the prompts and say "yes" to initializing conda. Then close and reopen your terminal, or run:
+
+```bash
+source ~/.bashrc
+```
+
+### Step 3: Create the Conda Environment
+
+```bash
+conda create -n chatbot_env python=3.11 -y
+conda activate chatbot_env
+```
+
+You should see `(chatbot_env)` at the beginning of your terminal prompt.
+
+### Step 4: Install CUDA Toolkit (GPU users only)
+
+If you have an NVIDIA GPU and want fast transcription, install the CUDA toolkit inside your conda environment:
+
+```bash
+conda install -c conda-forge cudatoolkit=12.1 -y
+```
+
+If you do NOT have an NVIDIA GPU, skip this step. See the [GPU vs CPU Configuration](#gpu-vs-cpu-configuration) section for how to configure Whisper for CPU.
 
 ---
 
-### Step 3: Clone the Repository
+## API Keys
 
-"Cloning" means downloading a copy of this project onto your computer so you can work on it.
+This project requires API keys from two services. Both use the same OpenAI API key.
 
-1. Open Terminal (Mac) or Git Bash (Windows)
-2. Navigate to the folder where you want to store the project. For example, to save it to your Desktop:
+### OpenAI API Key
 
-   **Mac:**
-   ```bash
-   cd ~/Desktop
-   ```
+Used for: GPT-4o (chatbot agent + complaint classification) and TTS (voice responses)
 
-   **Windows:**
-   ```bash
-   cd C:/Users/YourName/Desktop
-   ```
+1. Go to [https://platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. Sign in or create an account
+3. Click "Create new secret key"
+4. Copy the key (it starts with `sk-`)
 
-3. Clone the repo by running:
-   ```bash
-   git clone https://github.com/ali00418-ship-it/msba-team2-trendsproject.git
-   ```
+### Hugging Face Token
 
-4. Move into the project folder:
-   ```bash
-   cd msba-team2-trendsproject
-   ```
+Used for: Downloading the Whisper model weights on first run
 
-You now have a full local copy of the project on your machine. ✅
+1. Go to [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+2. Sign in or create an account
+3. Click "New token", give it a name, select "Read" access
+4. Copy the token (it starts with `hf_`)
 
----
+### Create the .env File
 
-### Step 4: Install Python Dependencies
-
-Once inside the project folder, install the required Python libraries:
+In the project root directory, create a file called `.env`:
 
 ```bash
-pip install -r requirements.txt
+touch .env
 ```
 
-> ⚠️ If you get a "requirements.txt not found" error, this file hasn't been added yet. Check with the team or skip this step for now.
+Open it in a text editor and add your keys:
 
----
-
-### Step 5: Create Your Own Branch
-
-> 💡 **What is a branch?** Think of `main` as the official, shared version of the project. A branch is your own personal copy where you can make changes safely — without affecting anyone else's work — until you're ready to merge it in.
-
-**Never work directly on `main`.** Always create your own branch first.
-
-Name your branch after yourself or the feature you're working on. For example:
-
-```bash
-git checkout -b your-name
+```env
+OPENAI_API_KEY=sk-your-openai-api-key-here
+WHISP_KEY=hf_your-hugging-face-token-here
 ```
 
-Real examples:
+Do NOT add quotes around the values. Do NOT commit this file to git.
+
+Make sure `.env` is in your `.gitignore`:
+
 ```bash
-git checkout -b mohameddeq
-git checkout -b cora-nlp-clustering
-git checkout -b raja-dashboard
-```
-
-You only need to create your branch once. After that, Git will remember it.
-
-To check which branch you're currently on at any time:
-```bash
-git branch
-```
-
-The branch with a `*` next to it is your active one.
-
----
-
-### Step 6: Make Your Changes
-
-Open the project in your preferred code editor (we recommend [VS Code](https://code.visualstudio.com/)). Make your edits to the relevant files — you're working safely on your own branch, so nothing affects `main` until you're ready.
-
----
-
-### Step 7: Save and Upload Your Changes to Your Branch
-
-After making changes, follow these three steps every time.
-
-#### 7a — Stage your changes
-This tells Git which files you want to save:
-```bash
-git add .
-```
-
-#### 7b — Commit your changes
-This saves a snapshot of your work with a short description:
-```bash
-git commit -m "Brief description of what you changed"
-```
-
-For example:
-```bash
-git commit -m "Added data cleaning script for CFPB dataset"
-```
-
-#### 7c — Push your branch to GitHub
-The first time you push a new branch, use this command (replace `your-name` with your actual branch name):
-```bash
-git push -u origin your-name
-```
-
-After the first push, you can just use:
-```bash
-git push
+echo ".env" >> .gitignore
 ```
 
 ---
 
-### Step 8: Open a Pull Request (PR)
+## Installation
 
-Once your work is ready to be reviewed and merged into `main`, open a Pull Request on GitHub.
+With your conda environment activated (`conda activate chatbot_env`), install all required packages:
 
-1. Go to the repo: [https://github.com/ali00418-ship-it/msba-team2-trendsproject](https://github.com/ali00418-ship-it/msba-team2-trendsproject)
-2. You'll see a yellow banner saying **"Compare & pull request"** — click it
-3. Add a short title and description of what you changed
-4. Click **"Create pull request"**
-5. Let a teammate know to review and merge it
-
-> ⚠️ Do **not** merge your own PR without a teammate reviewing it first.
-
----
-
-### Step 9: Pull the Latest Changes from Teammates
-
-Before you start working each session, always download the latest changes from `main` into your branch to stay up to date:
+### Core Dependencies
 
 ```bash
-git pull origin main
+pip install --break-system-packages \
+    streamlit \
+    duckdb \
+    pandas \
+    plotly \
+    python-dotenv \
+    openai \
+    faster-whisper \
+    langchain \
+    langchain-openai \
+    langchain-experimental \
+    langchain-classic \
+    mutagen \
+    fastparquet
 ```
 
-Make this a habit — **pull before you start, push when you're done.**
+### GPU-Specific Install (NVIDIA GPU users)
+
+If you have an NVIDIA GPU and installed the CUDA toolkit in Step 4:
+
+```bash
+pip install ctranslate2
+```
+
+This should automatically pick up CUDA. Verify with:
+
+```bash
+python -c "import ctranslate2; print(ctranslate2.get_cuda_device_count())"
+```
+
+If it prints a number greater than 0, CUDA is working.
+
+### CPU-Only Install (no NVIDIA GPU)
+
+If you do NOT have an NVIDIA GPU:
+
+```bash
+pip install ctranslate2
+```
+
+Then see the [GPU vs CPU Configuration](#gpu-vs-cpu-configuration) section to configure the code for CPU mode.
 
 ---
 
-## ⚠️ Common Issues & Fixes
+## Data Setup
 
-| Problem | Fix |
-|---|---|
-| `fatal: no email was given` | Run Step 2 above to set your Git identity |
-| `error: src refspec main does not match any` | You haven't made a commit yet. Complete Step 7b first |
-| `rejected — non-fast-forward` | Someone else pushed changes. Run `git pull origin main` first, then `git push` again |
-| Accidentally working on `main` | Run `git checkout -b your-name` — your uncommitted changes carry over to the new branch automatically |
-| `permission denied` | Make sure you're logged into GitHub in your terminal. Try `git push` and enter your GitHub credentials when prompted |
-| `error: pathspec did not match` | Your branch does not exist yet. Run `git checkout -b your-branch-name` to create it |
-| Python not found | Make sure Python is installed and added to PATH (see Step 1) |
+### Original Complaint Data
+
+The project expects a labeled Parquet file in the `data/labeled/` directory. This file contains the original consumer complaint dataset with topic labels and priority scores.
+
+```bash
+mkdir -p data/labeled
+```
+
+Place your labeled Parquet file(s) in `data/labeled/`. The schema should include these columns:
+
+```
+Date received, Product, Sub-product, Issue, Sub-issue,
+Consumer complaint narrative, Company, State, Tags,
+Company response to consumer, Consumer disputed?, clean_narrative,
+word_count, lda_topic, lda_topic_label, bert_topic, bert_topic_label,
+category, year_month, year, month, date_dt, volume_score, growth_score,
+is_unresolved, severity_score, recency_score, length_score, danger_boost,
+priority_score, priority_tier
+```
+
+### Audio Recordings Directory
+
+The file watcher monitors a directory for new audio recordings. By default this is set to:
+
+```
+/mnt/c/.../Documents/Sound Recordings
+```
+
+To change this, edit the `PATH` variable in `watch.py`:
+
+```python
+PATH = "/path/to/your/audio/recordings"
+```
+
+On WSL2, Windows paths are accessible under `/mnt/c/`. For example, `C:\Users\YourName\Documents` becomes `/mnt/c/Users/YourName/Documents`.
+
+### Karen Avatar Image
+
+Place an image file called `karen.png` in the project root directory. This is used as the chatbot avatar in the Streamlit UI.
 
 ---
 
-## 📁 Project Structure
+## Running the Project
+
+The project has two components that run simultaneously in separate terminals.
+
+### Terminal 1: Start the File Watcher
+
+```bash
+conda activate chatbot_env
+python watch.py
+```
+
+This will start polling for new audio files. You should see:
 
 ```
-msba-team2-trendsproject/
-│
-├── MSBA_Market_Trends.py     # Main analysis script
-├── README.md                 # This file
-└── requirements.txt          # Python dependencies (to be added)
+No new file found
+No new file found
+...
+```
+
+When a new recording appears, it will automatically transcribe, classify, and store it.
+
+### Terminal 2: Start the Chatbot
+
+```bash
+conda activate chatbot_env
+streamlit run app.py
+```
+
+This opens the Streamlit UI in your browser (usually at `http://localhost:8501`).
+
+---
+
+## Usage
+
+### Text Chat
+
+Type your question in the chat input at the bottom of the page. Examples:
+
+- "How many complaints are in the dataset?"
+- "What are the top 10 companies by complaint count?"
+- "Show me a bar chart of complaints by priority tier"
+- "What is the latest complaint? Give me the company, date, and full narrative."
+- "Compare fraud complaints in California vs Texas"
+
+### Voice Input
+
+1. Toggle on "Voice input" in the sidebar
+2. Click the microphone widget and speak your question
+3. Wait for transcription to complete
+4. Karen processes your question and responds
+
+### Voice Output
+
+1. Toggle on "Voice responses" in the sidebar
+2. Karen will read her answers aloud using OpenAI's TTS
+
+### Recording New Complaints
+
+1. Make sure `watch.py` is running in a separate terminal
+2. Record an audio file and save it to your watched directory
+3. The watcher will detect it within 5-10 seconds
+4. After processing, the complaint appears in Karen's data immediately
+
+---
+
+## GPU vs CPU Configuration
+
+### GPU Configuration (default)
+
+The project is configured for NVIDIA GPU by default. The relevant settings are in two files:
+
+**file_manipulation.py** (transcribe function):
+```python
+model = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
+```
+
+**app.py** (load_whisper function):
+```python
+return WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
+```
+
+### CPU Configuration
+
+If you do not have an NVIDIA GPU, you need to change both files.
+
+**file_manipulation.py**: Find the `transcribe` function and change the model loading line:
+
+```python
+# Change this:
+model = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
+
+# To this:
+model = WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")
+```
+
+**app.py**: Find the `load_whisper` function and change it:
+
+```python
+# Change this:
+return WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
+
+# To this:
+return WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")
+```
+
+**Important notes for CPU users:**
+
+- Transcription will be significantly slower (roughly 5-10x depending on your CPU)
+- The `int8` compute type reduces memory usage and improves CPU performance
+- If you still get CUDA-related errors on import, add this at the very top of both `file_manipulation.py` and `app.py`, before any other imports:
+
+```python
+import os
+os.environ["CT2_USE_CUDA"] = "0"
+```
+
+- You can also use a smaller model for faster CPU performance at the cost of accuracy:
+
+```python
+model = WhisperModel("base", device="cpu", compute_type="int8")
+```
+
+Available model sizes from smallest to largest: `tiny`, `base`, `small`, `medium`, `large-v3-turbo`, `large-v3`
+
+---
+
+## Project Structure
+
+```
+project-root/
+|
+|-- app.py                    # Streamlit chatbot application
+|-- watch.py                  # Background file watcher for new recordings
+|-- file_manipulation.py      # Transcription, classification, storage logic
+|-- karen.png                 # Chatbot avatar image
+|-- .env                      # API keys (not committed to git)
+|-- .gitignore
+|
+|-- data/
+|   |-- labeled/
+|   |   |-- complaints_labeled.parquet    # Original labeled dataset
+|   |   |-- recording_20260423_143207.parquet  # Auto-generated from audio
+|   |   |-- recording_20260423_151022.parquet  # Auto-generated from audio
+|   |   |-- ...
 ```
 
 ---
 
-## 📬 Questions?
+## Tools and Technologies
 
-Reach out to any team member or open an [Issue](https://github.com/ali00418-ship-it/msba-team2-trendsproject/issues) on GitHub.
+| Tool | Version | Purpose |
+|------|---------|---------|
+| Python | 3.11 | Runtime language |
+| Faster Whisper | latest | Speech-to-text transcription (CTranslate2 backend) |
+| OpenAI GPT-4o | API | LLM for data analysis agent, complaint classification |
+| OpenAI TTS (tts-1) | API | Text-to-speech for voice responses |
+| LangChain | latest | ReAct agent framework with PythonREPLTool |
+| DuckDB | latest | SQL engine that queries Parquet files directly |
+| Apache Parquet | -- | Columnar data storage format |
+| Streamlit | latest | Web application framework for the chat UI |
+| Plotly | latest | Interactive chart generation |
+| Pandas | latest | Dataframe display formatting |
+| Mutagen | latest | MP3 duration detection for voice playback timing |
+| Miniconda | latest | Python environment management |
+| WSL2 | -- | Linux runtime on Windows with GPU passthrough |
+
+---
+
+## Troubleshooting
+
+### "Library libcublas.so.12 is not found or cannot be loaded"
+
+You are running on CPU but CTranslate2 is trying to load CUDA libraries. Add this to the very top of your Python files, before any other imports:
+
+```python
+import os
+os.environ["CT2_USE_CUDA"] = "0"
+```
+
+Also make sure you changed `device="cuda"` to `device="cpu"` in both `file_manipulation.py` and `app.py`.
+
+### "Table Function with name clear_cache does not exist"
+
+Your version of DuckDB does not support `clear_cache()`. This is handled automatically in the latest version of the code. The agent creates a fresh `duckdb.connect()` for each query instead of relying on cache clearing.
+
+### KeyError in fastparquet time_factors
+
+This happens when appending to Parquet files with INT96 timestamp encoding. The project avoids this entirely by writing individual Parquet files per recording via DuckDB instead of appending to a single file.
+
+### Chatbot does not see newly recorded complaints
+
+Make sure the agent prompt instructs GPT-4o to use `con = duckdb.connect()` instead of `duckdb.sql()`. The default connection caches glob results and will not pick up new files written by `watch.py` during the same session.
+
+### Voice input disappears after first use
+
+This is handled by the dynamic key pattern in `app.py`. The `st.audio_input` widget key increments after each recording, forcing Streamlit to render a fresh widget. If you modified `app.py`, make sure the `voice_key_counter` logic and `st.rerun()` calls are intact.
+
+### Voice response gets cut off
+
+The code uses `mutagen` to detect MP3 duration and waits that long before triggering `st.rerun()`. Make sure `mutagen` is installed:
+
+```bash
+pip install mutagen
+```
+
+If responses are still clipped, increase the buffer time in `app.py` by changing `time.sleep(duration + 0.25)` to `time.sleep(duration + 1.0)`.
+
+### Streamlit shows "ModuleNotFoundError"
+
+Make sure your conda environment is activated before running:
+
+```bash
+conda activate chatbot_env
+streamlit run app.py
+```
+
+### OpenAI API errors (401 Unauthorized)
+
+Your API key is missing or invalid. Check that your `.env` file exists in the project root and contains a valid key:
+
+```env
+OPENAI_API_KEY=sk-your-key-here
+```
+
+Make sure there are no extra spaces or quotes around the value.
