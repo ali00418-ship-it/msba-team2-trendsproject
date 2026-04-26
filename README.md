@@ -1,246 +1,111 @@
-# 🏦 Karen - AI Complaint Assistant
+# 🏦 Karen — AI Complaint Assistant
 **MSBA Trends Project — Team 2**
 
-> Turning large volumes of consumer banking complaints into clear, prioritized action items for product teams.
+> Turning millions of consumer banking complaints into clear, prioritized action items — accessible through a voice-enabled AI assistant.
+
+> *This project repository is created in partial fulfillment of the requirements for the Big Data Analytics course offered by the Master of Science in Business Analytics program at the Carlson School of Management, University of Minnesota.*
 
 ---
 
 ## 👥 Team Members
+
 Mohameddeq Ali · Cora Goodwin · Midori Neaton · Raja Sori · Xupei Ye · Kyle Zhu
 
 ---
 
 ## 📌 Project Overview
 
-Banks and fintech product teams receive too many complaints to review individually. The real challenge is figuring out **which pain points matter most**, which ones are getting worse, and what should be fixed first.
+Financial institutions receive millions of consumer complaints. Manually reviewing them to identify what matters most — and what to fix first — is slow, resource-intensive, and prone to missing hidden risks buried in unstructured text.
 
-This project builds a **Banking Complaint Intelligence System** that helps product teams turn raw complaint data into prioritized insights — delivered through a dashboard or copilot-style interface.
+**Karen** is an AI-powered complaint intelligence assistant that solves this in two steps:
 
-**Outputs include:**
-- Top consumer complaint themes
-- Fast-growing issue areas
-- Affected products and customer segments
-- Priority scores with written rationale for each cluster
-- NLP-generated summaries of complaint narratives
+1. **Structuring** — Raw narrative complaint text is transformed into distinct, analyzable categories using BERTopic topic modeling
+2. **Prioritizing** — A weighted priority score ranks complaint categories by volume, growth, recency, topic danger, and narrative length
+
+Decision makers can then talk to **Karen** in natural language — by voice or text — to query complaint metrics, generate visualizations, and surface ranked priorities instantly.
+
+---
+
+## 🎯 Business Value
+
+| Pain Point | How Karen Helps |
+|---|---|
+| Data overload — millions of complaints impossible to review manually | BERTopic structures unstructured narratives into clear categories automatically |
+| Hidden risks buried in complaint text | Priority scoring surfaces high-risk, fast-growing issues proactively |
+| Slow manual analysis | Natural language queries replace hours of data mining |
+| Inconsistent prioritization | Objective, weighted scoring ensures consistent, defensible decisions |
 
 ---
 
 ## 🗂️ Data Source
 
 **CFPB Consumer Complaint Database (Public)**
-[https://catalog.data.gov/dataset/consumer-complaint-database](https://catalog.data.gov/dataset/consumer-complaint-database)
+- Link: [https://catalog.data.gov/dataset/consumer-complaint-database](https://catalog.data.gov/dataset/consumer-complaint-database)
+- Size: ~14.35 million rows, ~8.4 GB
+- Contains: structured complaint metadata + optional consumer narrative text
+- ~26% of complaints include a consumer-written narrative (used for NLP)
+
+> ⚠️ The full dataset is too large for GitHub. See setup instructions below for how to download it.
 
 ---
 
-## 🛠️ Tools & Technologies
+## 🛠️ Tech Stack
 
 | Category | Tools |
 |---|---|
-| Data Processing | Python, Pandas, PySpark |
-| Querying | SQL |
-| NLP / Clustering | BERTopic |
-| Visualization | Tableau |
-| AI / LLM | LLM-powered prioritization engine |
+| **Language & Runtime** | Python 3.11 (Miniconda/conda), WSL2 |
+| **Web App** | Streamlit |
+| **Data Storage & Querying** | DuckDB, Apache Parquet, Pandas |
+| **Topic Modeling / NLP** | BERTopic (BERT-based), LDA |
+| **LLM / AI** | OpenAI GPT-4o (agent, classification, TTS) |
+| **Speech-to-Text** | Faster Whisper — large-v3-turbo model (CTranslate2 backend) |
+| **Text-to-Speech** | OpenAI TTS API (tts-1, voice "nova") |
+| **Agent Framework** | LangChain ReAct agent, PythonREPLTool, AgentExecutor |
+| **Visualizations** | Plotly (rendered inside Streamlit) |
+| **Audio** | Streamlit st.audio_input, Mutagen |
+| **Environment Management** | python-dotenv |
 
 ---
 
-## 🚀 Getting Started — How to Collaborate
+## 🧠 How It Works
 
-Follow the steps below **in order**. This guide is written for complete beginners — no prior Git experience required.
-
----
-
-### Step 1: Install the Prerequisites
-
-You'll need two things installed on your computer before anything else.
-
-#### Install Git
-
-**Mac:**
-1. Open **Terminal** (press `Cmd + Space`, type "Terminal", hit Enter)
-2. Type the following and press Enter:
-   ```
-   git --version
-   ```
-3. If Git is not installed, your Mac will prompt you to install it automatically. Follow the on-screen instructions.
-
-**Windows:**
-1. Go to [https://git-scm.com/download/win](https://git-scm.com/download/win)
-2. Download and run the installer
-3. Accept all default settings during installation
-4. Open **Git Bash** (search for it in the Start menu) — use this instead of Command Prompt for all Git commands
-
-#### Install Python
-
-1. Go to [https://www.python.org/downloads/](https://www.python.org/downloads/)
-2. Download and run the installer for your OS
-3. **Windows users:** On the first installer screen, check the box that says **"Add Python to PATH"** before clicking Install
-
----
-
-### Step 2: Configure Git with Your Identity
-
-This only needs to be done once per computer. Open Terminal (Mac) or Git Bash (Windows) and run these two commands, replacing the values with your own name and email:
-
-```bash
-git config --global user.name "Your Name"
-git config --global user.email "your@email.com"
+```
+[CFPB Raw Complaints — 14.35M rows]
+            │
+            ▼
+    [BERTopic NLP Pipeline]
+    Narrative text → structured complaint categories
+            │
+            ▼
+    [Priority Scoring Engine]
+    Volume + Growth + Recency + Topic Danger + Length
+            │
+            ▼
+    [Karen — AI Assistant]
+    GPT-4o + Whisper + LangChain ReAct Agent
+            │
+            ▼
+    [Streamlit Dashboard]
+    Natural language Q&A · Voice input · Plotly charts
 ```
 
-Use the same email address associated with your GitHub account.
+### Priority Score Formula
 
----
+Each complaint category receives a weighted score combining:
 
-### Step 3: Clone the Repository
+- **Volume** — total complaint count in the category
+- **Growth** — rate of increase over recent periods
+- **Recency** — how recent the complaints are
+- **Topic Danger** — risk signal derived from BERTopic cluster characteristics
+- **Length** — narrative length as a proxy for complaint severity
 
-"Cloning" means downloading a copy of this project onto your computer so you can work on it.
+### Karen's Capabilities
 
-1. Open Terminal (Mac) or Git Bash (Windows)
-2. Navigate to the folder where you want to store the project. For example, to save it to your Desktop:
-
-   **Mac:**
-   ```bash
-   cd ~/Desktop
-   ```
-
-   **Windows:**
-   ```bash
-   cd C:/Users/YourName/Desktop
-   ```
-
-3. Clone the repo by running:
-   ```bash
-   git clone https://github.com/ali00418-ship-it/msba-team2-trendsproject.git
-   ```
-
-4. Move into the project folder:
-   ```bash
-   cd msba-team2-trendsproject
-   ```
-
-You now have a full local copy of the project on your machine. ✅
-
----
-
-### Step 4: Install Python Dependencies
-
-Once inside the project folder, install the required Python libraries:
-
-```bash
-pip install -r requirements.txt
-```
-
-> ⚠️ If you get a "requirements.txt not found" error, this file hasn't been added yet. Check with the team or skip this step for now.
-
----
-
-### Step 5: Create Your Own Branch
-
-> 💡 **What is a branch?** Think of `main` as the official, shared version of the project. A branch is your own personal copy where you can make changes safely — without affecting anyone else's work — until you're ready to merge it in.
-
-**Never work directly on `main`.** Always create your own branch first.
-
-Name your branch after yourself or the feature you're working on. For example:
-
-```bash
-git checkout -b your-name
-```
-
-Real examples:
-```bash
-git checkout -b mohameddeq
-git checkout -b cora-nlp-clustering
-git checkout -b raja-dashboard
-```
-
-You only need to create your branch once. After that, Git will remember it.
-
-To check which branch you're currently on at any time:
-```bash
-git branch
-```
-
-The branch with a `*` next to it is your active one.
-
----
-
-### Step 6: Make Your Changes
-
-Open the project in your preferred code editor (we recommend [VS Code](https://code.visualstudio.com/)). Make your edits to the relevant files — you're working safely on your own branch, so nothing affects `main` until you're ready.
-
----
-
-### Step 7: Save and Upload Your Changes to Your Branch
-
-After making changes, follow these three steps every time.
-
-#### 7a — Stage your changes
-This tells Git which files you want to save:
-```bash
-git add .
-```
-
-#### 7b — Commit your changes
-This saves a snapshot of your work with a short description:
-```bash
-git commit -m "Brief description of what you changed"
-```
-
-For example:
-```bash
-git commit -m "Added data cleaning script for CFPB dataset"
-```
-
-#### 7c — Push your branch to GitHub
-The first time you push a new branch, use this command (replace `your-name` with your actual branch name):
-```bash
-git push -u origin your-name
-```
-
-After the first push, you can just use:
-```bash
-git push
-```
-
----
-
-### Step 8: Open a Pull Request (PR)
-
-Once your work is ready to be reviewed and merged into `main`, open a Pull Request on GitHub.
-
-1. Go to the repo: [https://github.com/ali00418-ship-it/msba-team2-trendsproject](https://github.com/ali00418-ship-it/msba-team2-trendsproject)
-2. You'll see a yellow banner saying **"Compare & pull request"** — click it
-3. Add a short title and description of what you changed
-4. Click **"Create pull request"**
-5. Let a teammate know to review and merge it
-
-> ⚠️ Do **not** merge your own PR without a teammate reviewing it first.
-
----
-
-### Step 9: Pull the Latest Changes from Teammates
-
-Before you start working each session, always download the latest changes from `main` into your branch to stay up to date:
-
-```bash
-git pull origin main
-```
-
-Make this a habit — **pull before you start, push when you're done.**
-
----
-
-## ⚠️ Common Issues & Fixes
-
-| Problem | Fix |
-|---|---|
-| `fatal: no email was given` | Run Step 2 above to set your Git identity |
-| `error: src refspec main does not match any` | You haven't made a commit yet. Complete Step 7b first |
-| `rejected — non-fast-forward` | Someone else pushed changes. Run `git pull origin main` first, then `git push` again |
-| Accidentally working on `main` | Run `git checkout -b your-name` — your uncommitted changes carry over to the new branch automatically |
-| `permission denied` | Make sure you're logged into GitHub in your terminal. Try `git push` and enter your GitHub credentials when prompted |
-| `error: pathspec did not match` | Your branch does not exist yet. Run `git checkout -b your-branch-name` to create it |
-| Python not found | Make sure Python is installed and added to PATH (see Step 1) |
+- 🎙️ **Voice input** — speak your question directly via browser microphone
+- 💬 **Natural language queries** — ask in plain English, Karen writes and executes the analysis
+- 📊 **On-demand visualizations** — Karen generates interactive Plotly charts on request
+- 🔊 **Voice responses** — Karen can read her answers back to you via TTS
+- 🏆 **Ranked priorities** — ask Karen which complaint categories need attention most urgently
 
 ---
 
@@ -249,13 +114,132 @@ Make this a habit — **pull before you start, push when you're done.**
 ```
 msba-team2-trendsproject/
 │
-├── MSBA_Market_Trends.py     # Main analysis script
-├── README.md                 # This file
-└── requirements.txt          # Python dependencies (to be added)
+├── app.py                    # Main Karen Streamlit application
+├── file_manipulation.py      # Data processing and parquet handling
+├── speach_to_text.ipynb      # Speech-to-text pipeline notebook
+├── watch.py                  # File watcher / listener utility
+├── inst.txt                  # Karen's system prompt and instructions
+├── karen.png                 # Karen avatar / branding image
+├── sample.m4a                # Sample audio file for testing voice input
+├── MSBA_Market_Trends.py     # Original analysis script
+│
+├── data/                     # Data folder
+│   └── (parquet files)       # Processed complaint data — not committed to GitHub
+│
+├── Karen Flyer.pdf           # Project overview handout
+├── .gitignore
+└── README.md                 # This file
 ```
+
+---
+
+## 🚀 Setup & Installation
+
+### Prerequisites
+
+- Python 3.11 (via [Miniconda](https://docs.conda.io/en/latest/miniconda.html) recommended)
+- An OpenAI API key ([https://platform.openai.com](https://platform.openai.com))
+- Git ([https://git-scm.com](https://git-scm.com))
+
+---
+
+### Step 1 — Clone the repository
+
+```bash
+git clone https://github.com/ali00418-ship-it/msba-team2-trendsproject.git
+cd msba-team2-trendsproject
+```
+
+---
+
+### Step 2 — Create and activate a conda environment
+
+```bash
+conda create -n karen python=3.11 -y
+conda activate karen
+```
+
+---
+
+### Step 3 — Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+### Step 4 — Set up your API key
+
+Create a file called `.env` in the project root and add your OpenAI key:
+
+```
+OPENAI_API_KEY=your-key-here
+```
+
+> ⚠️ Never commit your `.env` file — it is already listed in `.gitignore`
+
+---
+
+### Step 5 — Download the CFPB dataset
+
+The full dataset (~8.4 GB) is too large for GitHub. Download it directly from:
+
+👉 [https://catalog.data.gov/dataset/consumer-complaint-database](https://catalog.data.gov/dataset/consumer-complaint-database)
+
+Place the downloaded CSV in the `data/` folder. The app expects parquet files — run `file_manipulation.py` to convert:
+
+```bash
+python file_manipulation.py
+```
+
+---
+
+### Step 6 — Launch Karen
+
+```bash
+streamlit run app.py
+```
+
+Open your browser to `http://localhost:8501` to interact with Karen.
+
+---
+
+
+## 🔮 Future Use Cases
+
+**Executive & Strategic**
+- Monitor complaint trends across the entire portfolio in real time
+- Identify fast-growing risk areas and allocate resources accordingly
+- Query Karen directly for ranked priorities and visualizations — no manual reporting needed
+
+**Front-Line Customer Service**
+- Phone-based complaints are largely absent from the CFPB dataset — Karen closes this gap by transcribing call recordings and feeding them into the database
+- Ensures phone complaint trends are captured and reflected in priority scores
+- Helps representatives identify and resolve the highest-priority open complaints after calls, improving resolution speed and customer satisfaction
+
+---
+
+## ⚠️ Known Limitations
+
+- Full BERTopic embedding on 3.7M narratives requires GPU (CPU runtime ~60+ hrs)
+- `consumer_disputed` field is 94%+ null in recent data — not used in scoring
+- Topic IDs from BERTopic are not stable across reruns — use topic keywords for reference
+
+---
+
+## 📚 References & Credits
+
+- [CFPB Consumer Complaint Database](https://www.consumerfinance.gov/data-research/consumer-complaints/)
+- [BERTopic Documentation](https://maartengr.github.io/BERTopic/)
+- [OpenAI API](https://platform.openai.com/docs)
+- [LangChain ReAct Agent](https://python.langchain.com/docs/modules/agents/)
+- [Faster Whisper](https://github.com/SYSTRAN/faster-whisper)
+- [Streamlit](https://streamlit.io/)
+- [DuckDB](https://duckdb.org/)
 
 ---
 
 ## 📬 Questions?
 
-Reach out to any team member or open an [Issue](https://github.com/ali00418-ship-it/msba-team2-trendsproject/issues) on GitHub.
+Open an [Issue](https://github.com/ali00418-ship-it/msba-team2-trendsproject/issues) on GitHub or reach out to any team member.
